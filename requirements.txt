@@ -1,0 +1,2 @@
+# Emerald Finance Control Desktop uses only Python standard library modules.
+# Python 3.11+ recommended.
