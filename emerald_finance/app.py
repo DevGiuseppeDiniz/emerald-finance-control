@@ -7,8 +7,11 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import database
+from .database import add_debt as db_add_debt
 from .database import add_debt_payment, add_transaction, export_backup, export_transactions_csv
 from .ofx import parse_ofx
+from .postgres_sync import sync_sqlite_to_postgres
+from .serasa import read_serasa_debts
 from .services import debt_status, money, percent
 
 
@@ -49,6 +52,8 @@ class FinanceApp(tk.Tk):
         header.pack(fill="x")
         ttk.Label(header, text="Emerald Finance Control", style="Title.TLabel").pack(side="left")
         ttk.Button(header, text="Importar OFX", style="Primary.TButton", command=self.import_ofx).pack(side="right", padx=(8, 0))
+        ttk.Button(header, text="Importar Serasa", command=self.import_serasa).pack(side="right", padx=(8, 0))
+        ttk.Button(header, text="Sincronizar Postgres", command=self.sync_postgres).pack(side="right", padx=(8, 0))
         ttk.Button(header, text="Backup JSON", command=self.backup_json).pack(side="right", padx=(8, 0))
         ttk.Button(header, text="Exportar CSV", command=self.export_csv).pack(side="right", padx=(8, 0))
 
@@ -156,6 +161,7 @@ class FinanceApp(tk.Tk):
         actions = ttk.Frame(self.debts_tab)
         actions.pack(fill="x", pady=(0, 8))
         ttk.Button(actions, text="Registrar pagamento da divida selecionada", command=self.pay_selected_debt).pack(side="left")
+        ttk.Button(actions, text="Importar extrato Serasa", command=self.import_serasa).pack(side="left", padx=(8, 0))
 
         listing = self.panel(self.debts_tab, "Dividas abertas")
         listing.pack(fill="both", expand=True)
@@ -446,25 +452,18 @@ class FinanceApp(tk.Tk):
         if not self.debt_creditor.get().strip():
             messagebox.showerror("Divida", "Informe o credor.")
             return
-        self.conn.execute(
-            """
-            INSERT INTO debts
-            (creditor, debt_type, opened_at, initial_balance, paid_amount, monthly_interest_rate, minimum_payment, due_date, strategy)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                self.debt_creditor.get().strip(),
-                self.debt_type.get(),
-                date.today().isoformat(),
-                initial,
-                paid,
-                rate,
-                minimum,
-                self.debt_due.get(),
-                self.debt_strategy.get().strip(),
-            ),
+        db_add_debt(
+            self.conn,
+            self.debt_creditor.get().strip(),
+            self.debt_type.get(),
+            date.today().isoformat(),
+            initial,
+            paid,
+            rate,
+            minimum,
+            self.debt_due.get(),
+            self.debt_strategy.get().strip(),
         )
-        self.conn.commit()
         self.refresh_all()
 
     def pay_selected_debt(self) -> None:
@@ -533,6 +532,41 @@ class FinanceApp(tk.Tk):
         self.refresh_all()
         messagebox.showinfo("Importacao OFX", f"{imported} lancamento(s) importado(s).\n{skipped} duplicado(s) ignorado(s).")
 
+    def import_serasa(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Importar extrato de dividas Serasa",
+            filetypes=[("CSV/TXT", "*.csv *.txt"), ("Todos", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            debts = read_serasa_debts(Path(path))
+        except Exception as exc:
+            messagebox.showerror("Importacao Serasa", f"Nao consegui ler o arquivo.\n{exc}")
+            return
+        imported = 0
+        skipped = 0
+        for item in debts:
+            ok = db_add_debt(
+                self.conn,
+                item.creditor,
+                item.debt_type,
+                date.today().isoformat(),
+                item.initial_balance,
+                item.paid_amount,
+                item.monthly_interest_rate,
+                item.minimum_payment,
+                item.due_date,
+                "Importada do Serasa",
+                "Serasa",
+                item.external_id,
+                item.notes,
+            )
+            imported += 1 if ok else 0
+            skipped += 0 if ok else 1
+        self.refresh_all()
+        messagebox.showinfo("Importacao Serasa", f"{imported} divida(s) importada(s).\n{skipped} duplicada(s) ignorada(s).")
+
     def backup_json(self) -> None:
         path = filedialog.asksaveasfilename(title="Salvar backup", defaultextension=".json", filetypes=[("JSON", "*.json")])
         if not path:
@@ -546,6 +580,15 @@ class FinanceApp(tk.Tk):
             return
         export_transactions_csv(self.conn, Path(path))
         messagebox.showinfo("Exportacao", "Lancamentos exportados em CSV.")
+
+    def sync_postgres(self) -> None:
+        try:
+            counts = sync_sqlite_to_postgres(self.conn)
+        except Exception as exc:
+            messagebox.showerror("Sincronizacao Postgres", str(exc))
+            return
+        lines = [f"{table}: {count} registro(s)" for table, count in counts.items()]
+        messagebox.showinfo("Sincronizacao Postgres", "Sincronizacao concluida.\n\n" + "\n".join(lines))
 
 
 def simple_amount_dialog(parent: tk.Tk, title: str, prompt: str) -> float | None:

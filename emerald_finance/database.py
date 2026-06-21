@@ -76,6 +76,9 @@ def migrate(conn: sqlite3.Connection) -> None:
             minimum_payment REAL NOT NULL DEFAULT 0,
             due_date TEXT,
             strategy TEXT,
+            source TEXT NOT NULL DEFAULT 'Manual',
+            external_id TEXT,
+            notes TEXT,
             active INTEGER NOT NULL DEFAULT 1
         );
 
@@ -97,7 +100,16 @@ def migrate(conn: sqlite3.Connection) -> None:
         );
         """
     )
+    _add_column(conn, "debts", "source", "TEXT NOT NULL DEFAULT 'Manual'")
+    _add_column(conn, "debts", "external_id", "TEXT")
+    _add_column(conn, "debts", "notes", "TEXT")
     conn.commit()
+
+
+def _add_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def seed(conn: sqlite3.Connection) -> None:
@@ -318,3 +330,48 @@ def add_debt_payment(conn: sqlite3.Connection, debt_id: int, amount: float) -> N
         debt["creditor"],
         "Pagamento registrado pela tela de dividas",
     )
+
+
+def add_debt(
+    conn: sqlite3.Connection,
+    creditor: str,
+    debt_type: str,
+    opened_at: str | None,
+    initial_balance: float,
+    paid_amount: float = 0,
+    monthly_interest_rate: float = 0,
+    minimum_payment: float = 0,
+    due_date: str | None = None,
+    strategy: str | None = None,
+    source: str = "Manual",
+    external_id: str | None = None,
+    notes: str | None = None,
+) -> bool:
+    if external_id:
+        exists = conn.execute("SELECT 1 FROM debts WHERE external_id = ?", (external_id,)).fetchone()
+        if exists:
+            return False
+    conn.execute(
+        """
+        INSERT INTO debts
+        (creditor, debt_type, opened_at, initial_balance, paid_amount, monthly_interest_rate,
+         minimum_payment, due_date, strategy, source, external_id, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            creditor,
+            debt_type,
+            opened_at,
+            initial_balance,
+            paid_amount,
+            monthly_interest_rate,
+            minimum_payment,
+            due_date,
+            strategy,
+            source,
+            external_id,
+            notes,
+        ),
+    )
+    conn.commit()
+    return True

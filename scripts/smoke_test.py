@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from emerald_finance.database import add_transaction, connect, find_account_for_description, get_summary
 from emerald_finance.ofx import parse_ofx
+from emerald_finance.serasa import read_serasa_debts
 
 
 def main() -> None:
@@ -45,6 +46,19 @@ def main() -> None:
             "OFX",
             transactions[0].external_id,
         )
+
+        serasa_csv = Path(tmp) / "serasa.csv"
+        serasa_csv.write_text(
+            "Credor;Valor atual;Vencimento;Contrato;Status\n"
+            "Banco Teste;R$ 1.234,56;21/06/2026;ABC123;Em aberto\n",
+            encoding="utf-8",
+        )
+        debts = read_serasa_debts(serasa_csv)
+        assert len(debts) == 1
+        assert debts[0].creditor == "Banco Teste"
+        assert debts[0].initial_balance == 1234.56
+        assert debts[0].due_date == "2026-06-21"
+        assert debts[0].external_id.startswith("serasa:")
         conn.close()
     print("smoke-test-ok")
 
