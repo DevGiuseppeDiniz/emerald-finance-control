@@ -98,6 +98,20 @@ def migrate(conn: sqlite3.Connection) -> None:
             active INTEGER NOT NULL DEFAULT 1,
             FOREIGN KEY(account_id) REFERENCES accounts(id)
         );
+
+        CREATE TABLE IF NOT EXISTS monthly_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month TEXT UNIQUE NOT NULL,
+            balance REAL NOT NULL DEFAULT 0,
+            income REAL NOT NULL DEFAULT 0,
+            expense REAL NOT NULL DEFAULT 0,
+            open_debt REAL NOT NULL DEFAULT 0,
+            monthly_interest REAL NOT NULL DEFAULT 0,
+            transaction_count INTEGER NOT NULL DEFAULT 0,
+            debt_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         """
     )
     _add_column(conn, "debts", "source", "TEXT NOT NULL DEFAULT 'Manual'")
@@ -248,6 +262,41 @@ def get_summary(conn: sqlite3.Connection) -> Summary:
     return Summary(balance, month_income, month_expense, open_debt, monthly_interest, overdue_debts, unclassified)
 
 
+def record_monthly_snapshot(conn: sqlite3.Connection, month: str | None = None) -> None:
+    start, end = current_month_bounds()
+    month_key = month or start[:7]
+    summary = get_summary(conn)
+    tx_count = conn.execute("SELECT COUNT(*) FROM transactions WHERE tx_date >= ? AND tx_date < ?", (start, end)).fetchone()[0]
+    debt_count = conn.execute("SELECT COUNT(*) FROM debts WHERE active = 1 AND initial_balance > paid_amount").fetchone()[0]
+    conn.execute(
+        """
+        INSERT INTO monthly_snapshots
+        (month, balance, income, expense, open_debt, monthly_interest, transaction_count, debt_count, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(month) DO UPDATE SET
+            balance = excluded.balance,
+            income = excluded.income,
+            expense = excluded.expense,
+            open_debt = excluded.open_debt,
+            monthly_interest = excluded.monthly_interest,
+            transaction_count = excluded.transaction_count,
+            debt_count = excluded.debt_count,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            month_key,
+            summary.balance,
+            summary.month_income,
+            summary.month_expense,
+            summary.open_debt,
+            summary.monthly_interest,
+            tx_count,
+            debt_count,
+        ),
+    )
+    conn.commit()
+
+
 def find_account_for_description(conn: sqlite3.Connection, description: str) -> int | None:
     normalized = description.upper()
     for rule in conn.execute(
@@ -292,7 +341,7 @@ def add_transaction(
 
 def export_backup(conn: sqlite3.Connection, output_path: Path) -> None:
     payload: dict[str, list[dict[str, Any]]] = {}
-    for table in ["accounts", "transactions", "debts", "budgets", "import_rules"]:
+    for table in ["accounts", "transactions", "debts", "budgets", "import_rules", "monthly_snapshots"]:
         payload[table] = [dict(row) for row in conn.execute(f"SELECT * FROM {table}")]
     output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 

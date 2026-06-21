@@ -55,3 +55,17 @@ CREATE TABLE IF NOT EXISTS import_rules (
     account_id BIGINT NOT NULL REFERENCES accounts(id),
     active BOOLEAN NOT NULL DEFAULT TRUE
 );
+
+CREATE TABLE IF NOT EXISTS monthly_snapshots (
+    id BIGINT PRIMARY KEY,
+    month TEXT UNIQUE NOT NULL,
+    balance NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    income NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    expense NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    open_debt NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    monthly_interest NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    transaction_count INTEGER NOT NULL DEFAULT 0,
+    debt_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+);

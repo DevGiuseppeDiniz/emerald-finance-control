@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from emerald_finance.database import add_transaction, connect, find_account_for_description, get_summary
+from emerald_finance.database import add_transaction, connect, find_account_for_description, get_summary, record_monthly_snapshot
 from emerald_finance.ofx import parse_ofx
 from emerald_finance.serasa import read_serasa_debts
 
@@ -18,6 +18,8 @@ def main() -> None:
         summary = get_summary(conn)
         assert round(summary.balance, 2) == 3652.84
         assert round(summary.open_debt, 2) == 11500.00
+        record_monthly_snapshot(conn)
+        assert conn.execute("SELECT COUNT(*) FROM monthly_snapshots").fetchone()[0] == 1
 
         sample = """
         <OFX><BANKTRANLIST>

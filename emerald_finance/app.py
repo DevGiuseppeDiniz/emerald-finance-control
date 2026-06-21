@@ -10,7 +10,7 @@ from . import database
 from .database import add_debt as db_add_debt
 from .database import add_debt_payment, add_transaction, export_backup, export_transactions_csv
 from .ofx import parse_ofx
-from .postgres_sync import sync_sqlite_to_postgres
+from .postgres_sync import load_database_url, sync_sqlite_to_postgres
 from .serasa import read_serasa_debts
 from .services import debt_status, money, percent
 
@@ -30,7 +30,9 @@ class FinanceApp(tk.Tk):
         self._configure_style()
 
         self._build_shell()
+        database.record_monthly_snapshot(self.conn)
         self.refresh_all()
+        self.ensure_remote_config()
 
     def _configure_style(self) -> None:
         self.style.configure("TFrame", background="#F4F7F5")
@@ -134,6 +136,10 @@ class FinanceApp(tk.Tk):
 
         listing = self.panel(self.transactions_tab, "Historico")
         listing.pack(fill="both", expand=True)
+        tx_actions = ttk.Frame(listing, style="Panel.TFrame")
+        tx_actions.pack(fill="x", pady=(0, 8))
+        ttk.Button(tx_actions, text="Editar selecionado", command=self.edit_selected_transaction).pack(side="left")
+        ttk.Button(tx_actions, text="Excluir selecionado", command=self.delete_selected_transaction).pack(side="left", padx=(8, 0))
         self.tx_tree = self.tree(
             listing,
             ["ID", "Data", "Descricao", "Valor", "Conta", "Grupo", "Categoria", "Resultado", "Origem"],
@@ -162,6 +168,8 @@ class FinanceApp(tk.Tk):
         actions.pack(fill="x", pady=(0, 8))
         ttk.Button(actions, text="Registrar pagamento da divida selecionada", command=self.pay_selected_debt).pack(side="left")
         ttk.Button(actions, text="Importar extrato Serasa", command=self.import_serasa).pack(side="left", padx=(8, 0))
+        ttk.Button(actions, text="Editar selecionada", command=self.edit_selected_debt).pack(side="left", padx=(8, 0))
+        ttk.Button(actions, text="Excluir selecionada", command=self.delete_selected_debt).pack(side="left", padx=(8, 0))
 
         listing = self.panel(self.debts_tab, "Dividas abertas")
         listing.pack(fill="both", expand=True)
@@ -189,6 +197,10 @@ class FinanceApp(tk.Tk):
 
         listing = self.panel(self.accounts_tab, "Plano de contas")
         listing.pack(fill="both", expand=True)
+        account_actions = ttk.Frame(listing, style="Panel.TFrame")
+        account_actions.pack(fill="x", pady=(0, 8))
+        ttk.Button(account_actions, text="Editar selecionada", command=self.edit_selected_account).pack(side="left")
+        ttk.Button(account_actions, text="Desativar selecionada", command=self.delete_selected_account).pack(side="left", padx=(8, 0))
         self.account_tree = self.tree(
             listing,
             ["ID", "Codigo", "Conta", "Grupo", "Categoria", "Resultado", "Tipo", "Essencial"],
@@ -210,6 +222,10 @@ class FinanceApp(tk.Tk):
 
         listing = self.panel(self.budget_tab, "Orcamento x realizado")
         listing.pack(fill="both", expand=True)
+        budget_actions = ttk.Frame(listing, style="Panel.TFrame")
+        budget_actions.pack(fill="x", pady=(0, 8))
+        ttk.Button(budget_actions, text="Editar selecionado", command=self.edit_selected_budget).pack(side="left")
+        ttk.Button(budget_actions, text="Desativar selecionado", command=self.delete_selected_budget).pack(side="left", padx=(8, 0))
         self.budget_tree = self.tree(
             listing,
             ["Categoria", "Limite", "Realizado", "Saldo", "% usado", "Status", "Acao"],
@@ -437,7 +453,7 @@ class FinanceApp(tk.Tk):
         self.tx_desc.delete(0, "end")
         self.tx_amount.delete(0, "end")
         self.tx_counterparty.delete(0, "end")
-        self.refresh_all()
+        self.after_data_change()
 
     def add_debt(self) -> None:
         try:
@@ -464,7 +480,7 @@ class FinanceApp(tk.Tk):
             self.debt_due.get(),
             self.debt_strategy.get().strip(),
         )
-        self.refresh_all()
+        self.after_data_change()
 
     def pay_selected_debt(self) -> None:
         selected = self.debt_tree.selection()
@@ -475,7 +491,7 @@ class FinanceApp(tk.Tk):
         amount = simple_amount_dialog(self, "Pagamento", "Valor pago:")
         if amount and amount > 0:
             add_debt_payment(self.conn, debt_id, amount)
-            self.refresh_all()
+            self.after_data_change()
 
     def add_account(self) -> None:
         values = [self.acc_code.get().strip(), self.acc_name.get().strip(), self.acc_group.get().strip(), self.acc_category.get().strip(), self.acc_result.get().strip(), self.acc_type.get()]
@@ -494,7 +510,7 @@ class FinanceApp(tk.Tk):
         except sqlite3.IntegrityError as exc:
             messagebox.showerror("Plano de contas", f"Conta ou codigo ja existe.\n{exc}")
             return
-        self.refresh_all()
+        self.after_data_change()
 
     def add_budget(self) -> None:
         try:
@@ -515,7 +531,7 @@ class FinanceApp(tk.Tk):
             (category, limit, self.budget_hint.get().strip()),
         )
         self.conn.commit()
-        self.refresh_all()
+        self.after_data_change()
 
     def import_ofx(self) -> None:
         path = filedialog.askopenfilename(title="Importar OFX", filetypes=[("OFX/QFX", "*.ofx *.qfx"), ("Todos", "*.*")])
@@ -529,7 +545,7 @@ class FinanceApp(tk.Tk):
             ok = add_transaction(self.conn, item.posted_at, item.description, item.amount, account_id, "OFX", item.external_id)
             imported += 1 if ok else 0
             skipped += 0 if ok else 1
-        self.refresh_all()
+        self.after_data_change()
         messagebox.showinfo("Importacao OFX", f"{imported} lancamento(s) importado(s).\n{skipped} duplicado(s) ignorado(s).")
 
     def import_serasa(self) -> None:
@@ -564,7 +580,7 @@ class FinanceApp(tk.Tk):
             )
             imported += 1 if ok else 0
             skipped += 0 if ok else 1
-        self.refresh_all()
+        self.after_data_change()
         messagebox.showinfo("Importacao Serasa", f"{imported} divida(s) importada(s).\n{skipped} duplicada(s) ignorada(s).")
 
     def backup_json(self) -> None:
@@ -583,12 +599,255 @@ class FinanceApp(tk.Tk):
 
     def sync_postgres(self) -> None:
         try:
+            database.record_monthly_snapshot(self.conn)
             counts = sync_sqlite_to_postgres(self.conn)
         except Exception as exc:
             messagebox.showerror("Sincronizacao Postgres", str(exc))
             return
         lines = [f"{table}: {count} registro(s)" for table, count in counts.items()]
         messagebox.showinfo("Sincronizacao Postgres", "Sincronizacao concluida.\n\n" + "\n".join(lines))
+
+    def ensure_remote_config(self) -> None:
+        if not load_database_url():
+            messagebox.showwarning(
+                "Supabase/Postgres obrigatorio",
+                "Preencha DATABASE_URL no arquivo .env antes de registrar operacoes.\n"
+                "A sincronizacao remota agora faz parte obrigatoria do fluxo.",
+            )
+
+    def after_data_change(self) -> None:
+        database.record_monthly_snapshot(self.conn)
+        self.refresh_all()
+        try:
+            sync_sqlite_to_postgres(self.conn)
+        except Exception as exc:
+            messagebox.showerror(
+                "Sincronizacao obrigatoria falhou",
+                "A operacao foi salva localmente, mas ainda nao foi sincronizada ao Supabase/Postgres.\n\n"
+                f"{exc}",
+            )
+
+    def selected_tree_id(self, tree: ttk.Treeview, label: str) -> int | None:
+        selected = tree.selection()
+        if not selected:
+            messagebox.showinfo(label, "Selecione um registro.")
+            return None
+        return int(tree.item(selected[0], "values")[0])
+
+    def edit_selected_transaction(self) -> None:
+        tx_id = self.selected_tree_id(self.tx_tree, "Lancamentos")
+        if tx_id is None:
+            return
+        row = self.conn.execute("SELECT * FROM transactions WHERE id = ?", (tx_id,)).fetchone()
+        account_name = ""
+        if row["account_id"]:
+            found = self.conn.execute("SELECT name FROM accounts WHERE id = ?", (row["account_id"],)).fetchone()
+            account_name = found["name"] if found else ""
+        values = edit_dialog(
+            self,
+            "Editar lancamento",
+            [
+                ("tx_date", "Data", row["tx_date"]),
+                ("description", "Descricao", row["description"]),
+                ("amount", "Valor", str(row["amount"])),
+                ("account", "Conta", account_name, [name for name, _ in self.account_options]),
+                ("counterparty", "Credor/Projeto", row["counterparty"] or ""),
+                ("notes", "Observacao", row["notes"] or ""),
+            ],
+        )
+        if not values:
+            return
+        try:
+            amount = float(values["amount"].replace(",", "."))
+            date.fromisoformat(values["tx_date"])
+        except ValueError:
+            messagebox.showerror("Lancamentos", "Data ou valor invalido.")
+            return
+        self.conn.execute(
+            """
+            UPDATE transactions
+            SET tx_date = ?, description = ?, amount = ?, account_id = ?, counterparty = ?, notes = ?
+            WHERE id = ?
+            """,
+            (
+                values["tx_date"],
+                values["description"],
+                amount,
+                dict(self.account_options).get(values["account"]),
+                values["counterparty"],
+                values["notes"],
+                tx_id,
+            ),
+        )
+        self.conn.commit()
+        self.after_data_change()
+
+    def delete_selected_transaction(self) -> None:
+        tx_id = self.selected_tree_id(self.tx_tree, "Lancamentos")
+        if tx_id is None or not messagebox.askyesno("Lancamentos", "Excluir este lancamento?"):
+            return
+        self.conn.execute("DELETE FROM transactions WHERE id = ?", (tx_id,))
+        self.conn.commit()
+        self.after_data_change()
+
+    def edit_selected_debt(self) -> None:
+        debt_id = self.selected_tree_id(self.debt_tree, "Dividas")
+        if debt_id is None:
+            return
+        row = self.conn.execute("SELECT * FROM debts WHERE id = ?", (debt_id,)).fetchone()
+        values = edit_dialog(
+            self,
+            "Editar divida",
+            [
+                ("creditor", "Credor", row["creditor"]),
+                ("debt_type", "Tipo", row["debt_type"], ["Cartao", "Emprestimo", "Financiamento", "Parcelamento", "Serasa", "Outro"]),
+                ("initial_balance", "Saldo inicial", str(row["initial_balance"])),
+                ("paid_amount", "Pago", str(row["paid_amount"])),
+                ("monthly_interest_rate", "Juros mensal %", str(row["monthly_interest_rate"])),
+                ("minimum_payment", "Parcela minima", str(row["minimum_payment"])),
+                ("due_date", "Vencimento", row["due_date"] or ""),
+                ("strategy", "Estrategia", row["strategy"] or ""),
+                ("notes", "Observacao", row["notes"] or ""),
+            ],
+        )
+        if not values:
+            return
+        try:
+            initial = float(values["initial_balance"].replace(",", "."))
+            paid = float(values["paid_amount"].replace(",", "."))
+            rate = float(values["monthly_interest_rate"].replace(",", "."))
+            minimum = float(values["minimum_payment"].replace(",", "."))
+            if values["due_date"]:
+                date.fromisoformat(values["due_date"])
+        except ValueError:
+            messagebox.showerror("Dividas", "Valores ou vencimento invalidos.")
+            return
+        self.conn.execute(
+            """
+            UPDATE debts
+            SET creditor = ?, debt_type = ?, initial_balance = ?, paid_amount = ?,
+                monthly_interest_rate = ?, minimum_payment = ?, due_date = ?, strategy = ?, notes = ?
+            WHERE id = ?
+            """,
+            (
+                values["creditor"],
+                values["debt_type"],
+                initial,
+                paid,
+                rate,
+                minimum,
+                values["due_date"] or None,
+                values["strategy"],
+                values["notes"],
+                debt_id,
+            ),
+        )
+        self.conn.commit()
+        self.after_data_change()
+
+    def delete_selected_debt(self) -> None:
+        debt_id = self.selected_tree_id(self.debt_tree, "Dividas")
+        if debt_id is None or not messagebox.askyesno("Dividas", "Desativar esta divida?"):
+            return
+        self.conn.execute("UPDATE debts SET active = 0 WHERE id = ?", (debt_id,))
+        self.conn.commit()
+        self.after_data_change()
+
+    def edit_selected_account(self) -> None:
+        account_id = self.selected_tree_id(self.account_tree, "Plano de contas")
+        if account_id is None:
+            return
+        row = self.conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+        values = edit_dialog(
+            self,
+            "Editar conta",
+            [
+                ("code", "Codigo", row["code"]),
+                ("name", "Conta", row["name"]),
+                ("group_name", "Grupo", row["group_name"]),
+                ("category", "Categoria", row["category"]),
+                ("result_center", "Resultado", row["result_center"]),
+                ("type", "Tipo", row["type"], ["Entrada", "Saida", "Transferencia"]),
+                ("essential", "Essencial", "Sim" if row["essential"] else "Nao", ["Sim", "Nao"]),
+            ],
+        )
+        if not values:
+            return
+        try:
+            self.conn.execute(
+                """
+                UPDATE accounts
+                SET code = ?, name = ?, group_name = ?, category = ?, result_center = ?, type = ?, essential = ?
+                WHERE id = ?
+                """,
+                (
+                    values["code"],
+                    values["name"],
+                    values["group_name"],
+                    values["category"],
+                    values["result_center"],
+                    values["type"],
+                    1 if values["essential"] == "Sim" else 0,
+                    account_id,
+                ),
+            )
+            self.conn.commit()
+        except sqlite3.IntegrityError as exc:
+            messagebox.showerror("Plano de contas", f"Conta ou codigo ja existe.\n{exc}")
+            return
+        self.after_data_change()
+
+    def delete_selected_account(self) -> None:
+        account_id = self.selected_tree_id(self.account_tree, "Plano de contas")
+        if account_id is None or not messagebox.askyesno("Plano de contas", "Desativar esta conta?"):
+            return
+        self.conn.execute("UPDATE accounts SET active = 0 WHERE id = ?", (account_id,))
+        self.conn.commit()
+        self.after_data_change()
+
+    def edit_selected_budget(self) -> None:
+        selected = self.budget_tree.selection()
+        if not selected:
+            messagebox.showinfo("Orcamento", "Selecione um registro.")
+            return
+        category = self.budget_tree.item(selected[0], "values")[0]
+        row = self.conn.execute("SELECT * FROM budgets WHERE category = ?", (category,)).fetchone()
+        if not row:
+            return
+        values = edit_dialog(
+            self,
+            "Editar orcamento",
+            [
+                ("category", "Categoria", row["category"]),
+                ("monthly_limit", "Limite mensal", str(row["monthly_limit"])),
+                ("action_hint", "Acao sugerida", row["action_hint"] or ""),
+            ],
+        )
+        if not values:
+            return
+        try:
+            limit = float(values["monthly_limit"].replace(",", "."))
+        except ValueError:
+            messagebox.showerror("Orcamento", "Limite invalido.")
+            return
+        self.conn.execute(
+            "UPDATE budgets SET category = ?, monthly_limit = ?, action_hint = ?, active = 1 WHERE id = ?",
+            (values["category"], limit, values["action_hint"], row["id"]),
+        )
+        self.conn.commit()
+        self.after_data_change()
+
+    def delete_selected_budget(self) -> None:
+        selected = self.budget_tree.selection()
+        if not selected:
+            messagebox.showinfo("Orcamento", "Selecione um registro.")
+            return
+        category = self.budget_tree.item(selected[0], "values")[0]
+        if not messagebox.askyesno("Orcamento", "Desativar este orcamento?"):
+            return
+        self.conn.execute("UPDATE budgets SET active = 0 WHERE category = ?", (category,))
+        self.conn.commit()
+        self.after_data_change()
 
 
 def simple_amount_dialog(parent: tk.Tk, title: str, prompt: str) -> float | None:
@@ -613,6 +872,47 @@ def simple_amount_dialog(parent: tk.Tk, title: str, prompt: str) -> float | None
     ttk.Button(dialog, text="Confirmar", command=confirm).pack(pady=14)
     parent.wait_window(dialog)
     return result["value"]
+
+
+def edit_dialog(parent: tk.Tk, title: str, fields: list[tuple]) -> dict[str, str] | None:
+    dialog = tk.Toplevel(parent)
+    dialog.title(title)
+    dialog.geometry("560x520")
+    dialog.transient(parent)
+    dialog.grab_set()
+
+    body = ttk.Frame(dialog, padding=16)
+    body.pack(fill="both", expand=True)
+    widgets: dict[str, ttk.Entry | ttk.Combobox] = {}
+
+    for row_index, field in enumerate(fields):
+        key, label, value = field[:3]
+        options = field[3] if len(field) > 3 else None
+        ttk.Label(body, text=label).grid(row=row_index, column=0, sticky="w", pady=5)
+        if options:
+            widget = ttk.Combobox(body, state="readonly", values=options)
+            widget.set(value)
+        else:
+            widget = ttk.Entry(body)
+            widget.insert(0, value)
+        widget.grid(row=row_index, column=1, sticky="ew", padx=(10, 0), pady=5)
+        widgets[key] = widget
+    body.columnconfigure(1, weight=1)
+
+    result: dict[str, str] | None = None
+
+    def save() -> None:
+        nonlocal result
+        result = {key: widget.get().strip() for key, widget in widgets.items()}
+        dialog.destroy()
+
+    buttons = ttk.Frame(body)
+    buttons.grid(row=len(fields), column=0, columnspan=2, sticky="e", pady=(14, 0))
+    ttk.Button(buttons, text="Cancelar", command=dialog.destroy).pack(side="right")
+    ttk.Button(buttons, text="Salvar", style="Primary.TButton", command=save).pack(side="right", padx=(0, 8))
+
+    parent.wait_window(dialog)
+    return result
 
 
 def main() -> None:

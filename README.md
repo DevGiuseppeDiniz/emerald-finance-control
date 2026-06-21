@@ -14,7 +14,9 @@ Aplicacao desktop local para controle financeiro pessoal, sem web e sem Excel.
 - Projecoes de caixa.
 - Exportacao CSV/JSON para backup.
 - Importacao de extrato de dividas Serasa em CSV/TXT.
-- Sincronizacao opcional com Postgres compativel com Supabase/Neon.
+- Sincronizacao obrigatoria com Postgres compativel com Supabase/Neon no fluxo de escrita.
+- Registro mensal consolidado em `monthly_snapshots`.
+- CRUD para lancamentos, dividas, plano de contas e orcamentos.
 
 ## Como executar
 
@@ -53,9 +55,9 @@ O importador tenta reconhecer automaticamente colunas comuns como:
 
 Importacoes repetidas sao deduplicadas por um identificador calculado a partir de credor, contrato, valor, vencimento e status.
 
-## Postgres / Supabase / Neon
+## Supabase / Postgres / Neon
 
-O app continua funcionando localmente com SQLite. Para sincronizar com Postgres, crie um arquivo `.env` local com:
+O arquivo `.env` ja existe localmente e nao deve ser commitado. Preencha a URL:
 
 ```text
 DATABASE_URL=postgresql://usuario:senha@host:5432/banco?sslmode=require
@@ -69,7 +71,7 @@ Depois instale a dependencia opcional:
 pip install -r requirements.txt
 ```
 
-Sincronize pelo botao `Sincronizar Postgres` no app ou pelo terminal:
+Toda operacao de escrita tenta registrar o snapshot mensal e sincronizar com o Postgres. Tambem e possivel forcar a sincronizacao pelo botao `Sincronizar Postgres` ou pelo terminal:
 
 ```powershell
 python .\scripts\sync_to_postgres.py
