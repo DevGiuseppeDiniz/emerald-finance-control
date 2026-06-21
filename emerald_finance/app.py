@@ -112,8 +112,10 @@ class FinanceApp(tk.Tk):
         self.alert_text.configure(state="disabled")
 
     def _build_transactions(self) -> None:
-        form = self.panel(self.transactions_tab, "Novo lancamento")
-        form.pack(fill="x", pady=(0, 12))
+        form_panel = self.panel(self.transactions_tab, "Novo lancamento")
+        form_panel.pack(fill="x", pady=(0, 12))
+        form = ttk.Frame(form_panel, style="Panel.TFrame")
+        form.pack(fill="x")
         self.tx_date = self.entry(form, "Data", 0, 0, date.today().isoformat())
         self.tx_desc = self.entry(form, "Descricao", 0, 1)
         self.tx_amount = self.entry(form, "Valor", 0, 2)
@@ -135,8 +137,10 @@ class FinanceApp(tk.Tk):
         self.tx_tree.pack(fill="both", expand=True)
 
     def _build_debts(self) -> None:
-        form = self.panel(self.debts_tab, "Nova divida")
-        form.pack(fill="x", pady=(0, 12))
+        form_panel = self.panel(self.debts_tab, "Nova divida")
+        form_panel.pack(fill="x", pady=(0, 12))
+        form = ttk.Frame(form_panel, style="Panel.TFrame")
+        form.pack(fill="x")
         self.debt_creditor = self.entry(form, "Credor", 0, 0)
         self.debt_type = self.combo(form, "Tipo", 0, 1, ["Cartao", "Emprestimo", "Financiamento", "Parcelamento", "Outro"])
         self.debt_initial = self.entry(form, "Saldo inicial", 0, 2)
@@ -163,8 +167,10 @@ class FinanceApp(tk.Tk):
         self.debt_tree.pack(fill="both", expand=True)
 
     def _build_accounts(self) -> None:
-        form = self.panel(self.accounts_tab, "Nova conta gerencial")
-        form.pack(fill="x", pady=(0, 12))
+        form_panel = self.panel(self.accounts_tab, "Nova conta gerencial")
+        form_panel.pack(fill="x", pady=(0, 12))
+        form = ttk.Frame(form_panel, style="Panel.TFrame")
+        form.pack(fill="x")
         self.acc_code = self.entry(form, "Codigo", 0, 0)
         self.acc_name = self.entry(form, "Conta", 0, 1)
         self.acc_group = self.entry(form, "Grupo", 0, 2)
@@ -185,8 +191,10 @@ class FinanceApp(tk.Tk):
         self.account_tree.pack(fill="both", expand=True)
 
     def _build_budget(self) -> None:
-        form = self.panel(self.budget_tab, "Limite mensal por categoria")
-        form.pack(fill="x", pady=(0, 12))
+        form_panel = self.panel(self.budget_tab, "Limite mensal por categoria")
+        form_panel.pack(fill="x", pady=(0, 12))
+        form = ttk.Frame(form_panel, style="Panel.TFrame")
+        form.pack(fill="x")
         self.budget_category = self.entry(form, "Categoria", 0, 0)
         self.budget_limit = self.entry(form, "Limite mensal", 0, 1)
         self.budget_hint = self.entry(form, "Acao sugerida", 0, 2)
@@ -204,8 +212,10 @@ class FinanceApp(tk.Tk):
         self.budget_tree.pack(fill="both", expand=True)
 
     def _build_projection(self) -> None:
-        form = self.panel(self.projection_tab, "Premissas")
-        form.pack(fill="x", pady=(0, 12))
+        form_panel = self.panel(self.projection_tab, "Premissas")
+        form_panel.pack(fill="x", pady=(0, 12))
+        form = ttk.Frame(form_panel, style="Panel.TFrame")
+        form.pack(fill="x")
         self.proj_income = self.entry(form, "Receita mensal", 0, 0, "7200")
         self.proj_expense = self.entry(form, "Despesa mensal", 0, 1, "4400")
         self.proj_debt = self.entry(form, "Pagamento dividas", 0, 2, "1420")
